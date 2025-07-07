@@ -6,128 +6,126 @@ import org.spongepowered.asm.mixin.Shadow;
 
 import it.unimi.dsi.fastutil.objects.Object2DoubleArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2DoubleMap;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.fluid.Fluid;
-import net.minecraft.fluid.FluidState;
-import net.minecraft.state.properties.BlockStateProperties;
-import net.minecraft.tags.ITag;
-import net.minecraft.util.math.AxisAlignedBB;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.vector.Vector3d;
-import net.minecraft.util.text.ITextComponent;
-import net.minecraft.world.World;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.material.Fluid;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.Level;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
+import net.minecraft.network.chat.Component;
 
 @Mixin(Entity.class)
 public abstract class EntityMixin extends net.minecraftforge.common.capabilities.CapabilityProvider<Entity> {
 
-	@Shadow public World level;
-	@Shadow private AxisAlignedBB bb;
-	@Shadow private Vector3d deltaMovement = Vector3d.ZERO;
-	@Shadow protected Object2DoubleMap<ITag<Fluid>> fluidHeight = new Object2DoubleArrayMap<>(2);
+    @Shadow public Level level;
+    @Shadow private AABB bb;
+    @Shadow private Vec3 deltaMovement = Vec3.ZERO;
+    @Shadow protected Object2DoubleMap<TagKey<Fluid>> fluidHeight = new Object2DoubleArrayMap<>(2);
 
-	protected EntityMixin(Class<Entity> baseClass) {
-		super(baseClass);
-	}
+    protected EntityMixin(Class<Entity> baseClass) {
+        super(baseClass);
+    }
 
-	@Shadow
-	public AxisAlignedBB getBoundingBox() {
-		return this.bb;
-	}
+    @Shadow
+    public AABB getBoundingBox() {
+        return this.bb;
+    }
 
-	@Shadow
-	public boolean isPushedByFluid() {
-		return true;
-	}
+    @Shadow
+    public boolean isPushedByFluid() {
+        return true;
+    }
 
-	@Shadow
-	public Vector3d getDeltaMovement() {
-		return this.deltaMovement;
-	}
+    @Shadow
+    public Vec3 getDeltaMovement() {
+        return this.deltaMovement;
+    }
 
-	@Shadow
-	public void setDeltaMovement(Vector3d p_213317_1_) {
-		this.deltaMovement = p_213317_1_;
-	}
+    @Shadow
+    public void setDeltaMovement(Vec3 deltaMovement) {
+        this.deltaMovement = deltaMovement;
+    }
 
-	@Shadow
-	public ITextComponent getName() {
-		return null;
-	}
+    @Shadow
+    public Component getName() {
+        return null;
+    }
 
-	@Overwrite
-	public boolean updateFluidHeightAndDoFluidPushing(ITag<Fluid> p_210500_1_, double p_210500_2_) {
-		AxisAlignedBB axisalignedbb = this.getBoundingBox().deflate(0.001D);
-		int i = MathHelper.floor(axisalignedbb.minX);
-		int j = MathHelper.ceil(axisalignedbb.maxX);
-		int k = MathHelper.floor(axisalignedbb.minY);
-		int l = MathHelper.ceil(axisalignedbb.maxY);
-		int i1 = MathHelper.floor(axisalignedbb.minZ);
-		int j1 = MathHelper.ceil(axisalignedbb.maxZ);
-		if (!this.level.hasChunksAt(i, k, i1, j, l, j1)) {
-			return false;
-		} else {
-			double d0 = 0.0D;
-			boolean flag = this.isPushedByFluid();
-			boolean flag1 = false;
-			Vector3d vector3d = Vector3d.ZERO;
-			int k1 = 0;
-			BlockPos.Mutable blockpos$mutable = new BlockPos.Mutable();
+    @Overwrite
+    public boolean updateFluidHeightAndDoFluidPushing(TagKey<Fluid> fluidTag, double motionScale) {
+        AABB aabb = this.getBoundingBox().deflate(0.001D);
+        int minX = Mth.floor(aabb.minX);
+        int maxX = Mth.ceil(aabb.maxX);
+        int minY = Mth.floor(aabb.minY);
+        int maxY = Mth.ceil(aabb.maxY);
+        int minZ = Mth.floor(aabb.minZ);
+        int maxZ = Mth.ceil(aabb.maxZ);
+        if (!this.level.hasChunksAt(minX, minY, minZ, maxX, maxY, maxZ)) {
+            return false;
+        }
 
-			for(int l1 = i; l1 < j; ++l1) {
-				for(int i2 = k; i2 < l; ++i2) {
-					for(int j2 = i1; j2 < j1; ++j2) {
-						blockpos$mutable.set(l1, i2, j2);
-						FluidState fluidstate = this.level.getFluidState(blockpos$mutable);
-						if (fluidstate.is(p_210500_1_)) {
-							double d1 = (double)((float)i2 + fluidstate.getHeight(this.level, blockpos$mutable));
-							if (d1 >= axisalignedbb.minY) {
-								flag1 = true;
-								d0 = Math.max(d1 - axisalignedbb.minY, d0);
-								if (flag) {
-									Vector3d vector3d1 = fluidstate.getFlow(this.level, blockpos$mutable);
-									if (d0 < 0.4D) {
-										vector3d1 = vector3d1.scale(d0);
-									}
-									// BEGIN added by mixin
-									if (fluidstate.hasProperty(BlockStateProperties.FALLING) &&
-											fluidstate.getValue(BlockStateProperties.FALLING)) {
-										vector3d1 = vector3d1.add(0, -1.51, 0);
-										//Log.info("apply downward force for entity ", getName());
-									}
-									// END added by mixin
+        double fluidHeight = 0.0D;
+        boolean isPushed = this.isPushedByFluid();
+        boolean hasFluid = false;
+        Vec3 fluidPush = Vec3.ZERO;
+        int fluidBlocks = 0;
+        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
 
-									vector3d = vector3d.add(vector3d1);
-									++k1;
-								}
-							}
-						}
-					}
-				}
-			}
+        for (int x = minX; x < maxX; ++x) {
+            for (int y = minY; y < maxY; ++y) {
+                for (int z = minZ; z < maxZ; ++z) {
+                    mutablePos.set(x, y, z);
+                    FluidState fluidState = this.level.getFluidState(mutablePos);
+                    if (fluidState.is(fluidTag)) {
+                        double height = (double)((float)y + fluidState.getHeight(this.level, mutablePos));
+                        if (height >= aabb.minY) {
+                            hasFluid = true;
+                            fluidHeight = Math.max(height - aabb.minY, fluidHeight);
+                            if (isPushed) {
+                                Vec3 flow = fluidState.getFlow(this.level, mutablePos);
+                                if (fluidHeight < 0.4D) {
+                                    flow = flow.scale(fluidHeight);
+                                }
+                                // BEGIN added by mixin
+                                if (fluidState.hasProperty(BlockStateProperties.FALLING) &&
+                                        fluidState.getValue(BlockStateProperties.FALLING)) {
+                                    flow = flow.add(0, -1.51, 0);
+                                }
+                                // END added by mixin
+                                fluidPush = fluidPush.add(flow);
+                                ++fluidBlocks;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-			if (vector3d.length() > 0.0D) {
-				if (k1 > 0) {
-					vector3d = vector3d.scale(1.0D / (double)k1);
-				}
+        if (fluidPush.length() > 0.0D) {
+            if (fluidBlocks > 0) {
+                fluidPush = fluidPush.scale(1.0D / (double)fluidBlocks);
+            }
 
-				if (!(((Entity) (Object) this) instanceof PlayerEntity)) {
-					vector3d = vector3d.normalize();
-				}
+            if (!(((Entity) (Object) this) instanceof Player)) {
+                fluidPush = fluidPush.normalize();
+            }
 
-				Vector3d vector3d2 = this.getDeltaMovement();
-				vector3d = vector3d.scale(p_210500_2_ * 1.0D);
-				double d2 = 0.003D;
-				if (Math.abs(vector3d2.x) < 0.003D && Math.abs(vector3d2.z) < 0.003D && vector3d.length() < 0.0045000000000000005D) {
-					vector3d = vector3d.normalize().scale(0.0045000000000000005D);
-				}
+            Vec3 currentMotion = this.getDeltaMovement();
+            fluidPush = fluidPush.scale(motionScale * 1.0D);
+            double minMotion = 0.003D;
+            if (Math.abs(currentMotion.x) < minMotion && Math.abs(currentMotion.z) < minMotion && fluidPush.length() < 0.0045D) {
+                fluidPush = fluidPush.normalize().scale(0.0045D);
+            }
 
-				this.setDeltaMovement(this.getDeltaMovement().add(vector3d));
-			}
+            this.setDeltaMovement(this.getDeltaMovement().add(fluidPush));
+        }
 
-			this.fluidHeight.put(p_210500_1_, d0);
-			return flag1;
-		}
-	}
+        this.fluidHeight.put(fluidTag, fluidHeight);
+        return hasFluid;
+    }
 }
